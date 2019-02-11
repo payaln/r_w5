@@ -8,56 +8,40 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <deque>
 
 using namespace std;
 
-template <typename T>
-class Object {
-public:
-
-    Object() = default;
-
-
-    explicit Object(T&& _obj) : obj(move(_obj)) {
+struct Priority {
+    Priority() {
         static size_t cnt = 0;
         id = cnt++;
     }
 
-    Object(const Object& object)
-            : obj(move(object.obj))
-            , id(object.getId())
-            , pr(object.pr) {}
-
-    void Up() {
-        ++pr;
-    }
-
-    Object& operator = (Object&& object) {
-        obj = move(object.obj);
-        id = object.getId();
-        pr = object.pr;
-        return *this;
-    }
-
-    size_t getId() {
-        return id;
-    }
-
-    const size_t getPriority() const {
-        return pr;
-    }
-
-    const T& getObj() const {
-        return obj;
-    }
-
-    T obj;
-private:
     size_t pr = 0;
     size_t id;
-
 };
 
+//template <typename T>
+//struct Item {
+//    Priority p;
+//    T t;
+//    Item() = default;
+//    Item(T&& other, const Priority& pr) : t(move(other)), p(pr){
+//
+//    }
+//
+//    Item(Item&& other) = default;
+//    Item& operator = (Item&& other) = default;
+//};
+
+bool operator < (const Priority& l, const Priority& r) {
+    if (l.pr == r.pr) {
+        return l.id < r.id;
+    } else {
+        return l.pr < r.pr;
+    }
+}
 
 template <typename T>
 class PriorityCollection {
@@ -65,14 +49,18 @@ public:
 
   using Id = size_t;
 
+  PriorityCollection() {
+      data.resize(2000000);
+  }
+
   // Добавить объект с нулевым приоритетом
   // с помощью перемещения и вернуть его идентификатор
   Id Add(T object) {
-      Object<T> obj(move(object));
-      size_t id = obj.getId();
-      data[id] = move(obj);
-      priority[0].insert(id);
-      return id;
+      Priority p;
+      data[p.id] = move(object);
+      priority[p] = p.id;
+      re_priority[p.id] = p;
+      return p.id;
   }
 
   // Добавить все элементы диапазона [range_begin, range_end)
@@ -81,8 +69,13 @@ public:
 
   template <typename ObjInputIt, typename IdOutputIt>
   void Add(ObjInputIt range_begin, ObjInputIt range_end, IdOutputIt ids_begin) {
+      move(range_begin, range_end, )
       while (range_begin != range_end) {
-          *(++ids_begin) = Add(move((*range_begin++)));
+          Priority p;
+          data[p.id] = move(*range_begin++);
+          priority[p] = p.id;
+          re_priority[p.id] = p;
+          *(ids_begin++) = p.id;
       }
 
   }
@@ -90,53 +83,43 @@ public:
   // Определить, принадлежит ли идентификатор какому-либо
   // хранящемуся в контейнере объекту
   bool IsValid(Id id) const {
-      return (data.count(id) > 0);
+      return (re_priority.count(id) > 0);
   }
 
   // Получить объект по идентификатору
   const T& Get(Id id) const {
-      return data.at(id).getObj();
+      return data.at(id);
   }
 
   // Увеличить приоритет объекта на 1
   void Promote(Id id) {
-      if (priority[data[id].getPriority()].size() < 2) {
-          priority.erase(data[id].getPriority());
-      } else {
-          priority[data[id].getPriority()].erase(priority[data[id].getPriority()].find(id));
-      }
-
-      data[id].Up();
-      priority[data[id].getPriority()].insert(id);
+      Priority p = re_priority[id];
+      priority.erase(p);
+      ++p.pr;
+      priority[p] = id;
+      re_priority[id] = p;
   }
 
   // Получить объект с максимальным приоритетом и его приоритет
   pair<const T&, int> GetMax() const {
-      auto p = priority.rbegin()->second;
-      size_t id = *p.rbegin();
-      const T& t = data.at(id).getObj();
-      int pr = data.at(id).getPriority();
-      return make_pair(cref(t), pr);
+      auto [k, v] = *priority.rbegin();
+      return {move(data.at(v)), k.pr};
   }
 
   // Аналогично GetMax, но удаляет элемент из контейнера
   pair<T, int> PopMax() {
-      auto [k, p] = *priority.rbegin();
-      size_t id = *p.rbegin();
-      if (p.size() < 2) {
-          priority.erase(k);
-      } else {
-          priority[k].erase(id);
-      }
-      T t = move(data.at(id).obj);
-      size_t pr = data[id].getPriority();
-      data.erase(id);
-      return {move(t), pr};
+      auto [k, v] = *priority.rbegin();
+      priority.erase(k);
+      re_priority.erase(v);
+
+      return {move(data.at(v)), k.pr};
   }
 
 private:
-    map<size_t, Object<T>> data;
-    map<size_t, set<size_t>> priority;
+    vector<T> data;
+//    set<T> data;
+    map<Priority, Id> priority;
+    map<Id , Priority> re_priority;
 };
 
 
@@ -155,20 +138,31 @@ void TestNoCopy() {
   const auto yellow_id = strings.Add("yellow");
   const auto red_id = strings.Add("red");
 
-  vector<string> vs{"aaaa", "bbbb", "qwerty"};
+  vector<StringNonCopyable> vs;
+  vs.emplace_back("qwerty");
+  vs.emplace_back("aaaaaa");
   vector<size_t> ids;
 
-  strings.Add<typename vector<string>::iterator, back_insert_iterator<vector<size_t>>>(vs.begin(), vs.end(), back_inserter(ids));
+    strings.Add<typename vector<StringNonCopyable>::iterator, back_insert_iterator<vector<size_t >>>
+          (vs.begin(), vs.end(), back_inserter(ids));
 
-  for (auto i : ids) {
-      cout << i << endl;
-  }
+    strings.Promote(ids[0]);
+    strings.Promote(ids[0]);
 
   strings.Promote(yellow_id);
   for (int i = 0; i < 2; ++i) {
     strings.Promote(red_id);
   }
   strings.Promote(yellow_id);
+
+    {
+        const auto item = strings.GetMax();
+
+        ASSERT_EQUAL(item.first, "qwerty");
+        ASSERT_EQUAL(item.second, 2);
+        const auto ite1m = strings.PopMax();
+    }
+
   {
     const auto item = strings.PopMax();
 
@@ -182,7 +176,7 @@ void TestNoCopy() {
   }
   {
     const auto item = strings.PopMax();
-    ASSERT_EQUAL(item.first, "white");
+    ASSERT_EQUAL(item.first, "aaaaaa");
     ASSERT_EQUAL(item.second, 0);
   }
 }
